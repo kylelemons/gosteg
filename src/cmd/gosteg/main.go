@@ -17,9 +17,8 @@ var (
 	in = flag.String("in", "", "<file>\tInput image (JPEG/PNG format)")
 	out = flag.String("out", "", "<file>\tOutput image (PNG format)")
 
-	embed = flag.Bool("embed", false, "Embed data into the image")
-	extract = flag.Bool("extract", false, "Extract data from the image")
-	data = flag.String("data", "", "<file>\tData file to read/write embedded data")
+	embed = flag.String("embed", "", "<file>\tEmbed data into the image from this file")
+	extract = flag.String("extract", "", "<file>\tExtract data from the image to this file")
 
 	crypt = flag.Bool("crypt", false, "Encrypt/decrypt the data (based on mode)")
 	keyin = flag.String("keyin", "", "<file>\tFile containing Key, IV, and Next")
@@ -74,7 +73,7 @@ func main() {
 	log.SetOutput(os.Stderr)
 
 	// Sanity checks
-	if *embed && *extract {
+	if len(*embed) != 0 && len(*extract) != 0 {
 		log.Fatalf("Error: Cannot specify both --embed and --extract")
 	}
 
@@ -88,17 +87,14 @@ func main() {
 	}
 
 	// Choose which action to take
-	if *embed {
-		if len(*data) == 0 {
-			log.Fatalf("Error: Must specify input data file with --data")
-		}
-		stat,err := os.Stat(*data)
+	if len(*embed) > 0 {
+		stat,err := os.Stat(*embed)
 		if err != nil {
-			log.Fatalf("Error: Unable to load data from %q: %s", *data, err)
+			log.Fatalf("Error: Unable to stat data file %q: %s", *embed, err)
 		}
-		fin,err := os.Open(*data)
+		fin,err := os.Open(*embed)
 		if err != nil {
-			log.Fatalf("Error: Unable to open data file %q: %s", *data, err)
+			log.Fatalf("Error: Unable to open data file %q: %s", *embed, err)
 		}
 
 		buf := bytes.NewBuffer(nil)
@@ -128,7 +124,7 @@ func main() {
 			cbuf := bytes.NewBuffer(nil)
 			_,err = enc.Encrypt(fin, cbuf)
 			if err != nil {
-				log.Fatalf("Error: Unable to encrypt data from %q: %s", *data, err)
+				log.Fatalf("Error: Unable to encrypt data from %q: %s", *embed, err)
 			}
 			binary.Write(buf, binary.BigEndian, int64(cbuf.Len()))
 			log.Printf("Embedding %d bytes of encrypted data\n", cbuf.Len())
@@ -145,7 +141,7 @@ func main() {
 			log.Printf("Embedding %d bytes of data\n", stat.Size)
 			_,err = buf.ReadFrom(fin)
 			if err != nil {
-				log.Fatalf("Error: Unable to read data from %q: %s", *data, err)
+				log.Fatalf("Error: Unable to read data from %q: %s", *embed, err)
 			}
 		}
 
@@ -161,11 +157,7 @@ func main() {
 		}
 	}
 
-	if *extract {
-		if len(*data) == 0 {
-			log.Fatalf("Error: Must specify output data file with --data")
-		}
-
+	if len(*extract) > 0 {
 		buf := bytes.NewBuffer(img.Data)
 
 		if !*raw {
@@ -192,20 +184,20 @@ func main() {
 			dbuf := bytes.NewBuffer(nil)
 			_,err = enc.Decrypt(buf, dbuf)
 			if err != nil {
-				log.Fatalf("Error: Unable to decrypt data from %q: %s", *data, err)
+				log.Fatalf("Error: Unable to decrypt data from %q: %s", *extract, err)
 			}
+			log.Printf("Decrypted %d bytes\n", dbuf.Len())
 			buf = dbuf
-			log.Printf("Decrypted %d bytes (%d)\n", dbuf.Len(), buf.Len())
 		}
 
-		fout,err := os.Create(*data)
+		fout,err := os.Create(*extract)
 		if err != nil {
-			log.Fatalf("Error: Unable to open data file %q for writing: %s", *data, err)
+			log.Fatalf("Error: Unable to open data file %q for writing: %s", *extract, err)
 		}
 
 		_,err = fout.Write(buf.Bytes())
 		if err != nil {
-			log.Fatalf("Error: Unable to write data to %q: %s", *data, err)
+			log.Fatalf("Error: Unable to write data to %q: %s", *extract, err)
 		}
 	}
 }

@@ -1,6 +1,6 @@
 *.6
 6.out
-steg
+gosteg/gosteg
 *.txt
 *.enc
 *.dec
