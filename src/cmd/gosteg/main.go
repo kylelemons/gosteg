@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"kylelemons/steg"
 )
 
 // TODO(kevlar): Open all files at the beginning for error reporting
@@ -81,7 +82,7 @@ func main() {
 	if len(*in) == 0 {
 		log.Fatalf("Error: Must specify input image with --in")
 	}
-	steg, err := Load(*in)
+	img, err := steg.Load(*in)
 	if err != nil {
 		log.Fatalf("Error: Unable to load %q: %s", *in, err)
 	}
@@ -103,12 +104,12 @@ func main() {
 		buf := bytes.NewBuffer(nil)
 
 		if *crypt {
-			enc := NewEncryption(256)
+			enc := steg.NewEncryption(256)
 			// Get the keys (either generate or read from file)
 			if len(*keyin) == 0 {
-				Randomize(enc.Key)
-				Randomize(enc.IV)
-				Randomize(enc.Next)
+				steg.Randomize(enc.Key)
+				steg.Randomize(enc.IV)
+				steg.Randomize(enc.Next)
 			} else {
 				kin,err := os.Open(*keyin)
 				if err != nil {
@@ -148,13 +149,13 @@ func main() {
 			}
 		}
 
-		if buf.Len() > len(steg.Data) {
+		if buf.Len() > len(img.Data) {
 			log.Fatalf("Error: Unable to embed %d bytes into %d-pixel image",
-				buf.Len(), len(steg.Data)/3)
+				buf.Len(), len(img.Data)/3)
 		}
-		steg.Embed(buf.Bytes())
+		img.Embed(buf.Bytes())
 
-		err = steg.WritePNG(*out)
+		err = img.WritePNG(*out)
 		if err != nil {
 			log.Fatalf("Error: Unable to write %q: %s", *out, err)
 		}
@@ -165,7 +166,7 @@ func main() {
 			log.Fatalf("Error: Must specify output data file with --data")
 		}
 
-		buf := bytes.NewBuffer(steg.Data)
+		buf := bytes.NewBuffer(img.Data)
 
 		if !*raw {
 			var size int64
@@ -174,7 +175,7 @@ func main() {
 		}
 
 		if *crypt {
-			enc := NewEncryption(256)
+			enc := steg.NewEncryption(256)
 			if len(*keyin) == 0 {
 				log.Fatalf("Error: Must specify decryption key file with --keyin")
 			}

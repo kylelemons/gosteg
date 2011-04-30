@@ -1,0 +1,44 @@
+Usage of gosteg:
+  This application is used for PNG image steganography.  It can
+optionally encrypt/decrypt the data using AES.  If no keyin file
+is specified in encryption mode, a new key will be generated.
+  An image can hold approximately three bits per pixel with this
+steganography scheme.  There is a certain amount of overhead
+for storing lengths, keys, etc.  Keep this in mind when choosing
+an image size for embedding.
+
+Options:
+  --in       <file>   Input image (JPEG/PNG format)
+  --out      <file>   Output image (PNG format)
+
+  --embed             Embed data into the image
+  --extract           Extract data from the image
+  --data     <file>   Data file to read/write embedded data
+
+  --crypt             Encrypt/decrypt the data (based on mode)
+  --keyin    <file>   File containing Key, IV, and Next
+  --keyout   key.dat  File to write new Key, IV, and Next
+  --rotate            Rotate keys before encryption
+
+Examples:
+
+gosteg --in kitten.jpg --out kitten.png
+  No steganography (just conversion to 64-bit color PNG)
+
+gosteg --in kitten.jpg --out kitten.png --embed --data hideme.dat
+  Embed hideme.dat into the PNG version of kitten.jpg and write it to kitten.png
+
+gosteg --in kitten.jpg --out kitten.png --embed --data hideme.dat --crypt
+  Same as above, except generate a new encryption key and write it to key.dat
+
+gosteg --in kitten.jpg --out kitten.png --embed --data hideme.dat --crypt --keyin key.dat
+  Same as above, except use the key from key.dat for encryption
+
+gosteg --in kitten.png --out kitten_steg.png --embed --data in.txt --crypt --keyin key.dat --rotate
+  Same as above, except rotate the keys before use
+
+gosteg --in kitten.png --extract --data hidden.dat
+  Extract unencrypted data from kiten.png into hidden.dat
+
+gosteg --in kitten.png --extract --data hidden.dat --crypt --keyin key.dat
+  Extract data encrypted with key in key.dat into file hidden.dat
