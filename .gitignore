@@ -4,3 +4,6 @@ steg
 *.txt
 *.enc
 *.dec
+*.sw[op]
+*.png
+*.jpg

@@ -1,92 +1,91 @@
 package main
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"fmt"
 	"os"
-	"io"
+	"image"
+	"image/png"
 )
 
-func hexprint(name string, buf []byte) {
-	fmt.Printf("%-10s: ", name)
-	for _,b := range buf {
-		fmt.Printf("%02X", b)
-	}
-	fmt.Println("")
+// Silently accept JPEG image import too
+import _ "image/jpeg"
+
+type Steg struct {
+	Image image.Image
+	Data []byte
 }
 
-func crypt(key []byte, infile io.Reader, outfile io.Writer) (int, os.Error) {
-	// Construct an AES block cipher with the given key
-	blk, err := aes.NewCipher(key)
+func Load(filename string) (*Steg, os.Error) {
+	file, err := os.Open(filename)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
-	hexprint("Key", key)
-
-	// Initialization Vector - never reuse for same key
-	iv := make([]byte, aes.BlockSize)
-	n, err := rand.Read(iv)
-	if err != nil || n != aes.BlockSize {
-		if err == nil {
-			err = os.NewError(fmt.Sprintf("Only generated %d random iv bits, expected %d",
-				n, aes.BlockSize))
-		}
-		return 0, err
+	img, _, err := image.Decode(file)
+	if err != nil {
+		return nil, err
 	}
 
-	hexprint("IV", iv)
+	bounds := img.Bounds().Size()
+	pixels := bounds.X * bounds.Y
+	png := image.NewRGBA64(bounds.X, bounds.Y)
 
-	bm := cipher.NewCBCEncrypter(blk, iv)
+	steg := &Steg{
+		Image: png,
+		Data: make([]byte, (3*pixels)/8),
+	}
 
-	plaintext := make([]byte, aes.BlockSize)
-	ciphertext := make([]byte, aes.BlockSize)
-	total := 0
-	pad := 0
-
-	for {
-		n, err := infile.Read(plaintext)
-		if err == os.EOF {
-			if n == 0 {
-				break
+	var accum, bits, i uint16
+	for y := 0; y < bounds.Y; y++ {
+		for x := 0; x < bounds.X; x++ {
+			png.Set(x,y, img.At(x,y))
+			col := png.Pix[y*png.Stride+x]
+			accum <<= 3
+			accum |= (col.R << 2) & 4
+			accum |= (col.G << 1) & 2
+			accum |= (col.B << 0) & 1
+			bits += 3
+			if bits >= 8 {
+				b := (accum >> (bits - 8)) & 0xFF
+				steg.Data[i] = uint8(b)
+				i++
+				bits -= 8
 			}
-		} else if err != nil {
-			return total, err
 		}
-		if n != aes.BlockSize {
-			fmt.Printf("Warning: Read %d bytes, expected %d\n", n, aes.BlockSize)
-		}
-		pad = aes.BlockSize - n
-		for i := 0; i < pad; i++ {
-			plaintext[aes.BlockSize-i-1] = byte(pad)
-		}
-		hexprint("Plain", plaintext)
-		bm.CryptBlocks(ciphertext, plaintext)
-		hexprint("Cipher", ciphertext)
-		n, err = outfile.Write(ciphertext)
-		if err != nil {
-			return total, err
-		}
-		total += n
-		fmt.Printf("Info: Wrote %d bytes\n", n)
 	}
-	// Always have padding bytes
-	if pad == 0 {
-		for i := 0; i < aes.BlockSize; i++ {
-			plaintext[i] = aes.BlockSize
+	return steg, nil
+}
+
+func (s *Steg) Embed(data []byte) {
+	offset := 0
+	copy(s.Data, data)
+	data = s.Data
+	nextbits := func(col image.RGBA64Color) image.RGBA64Color {
+		b := int(data[offset/8]) << 8;
+		if offset%8 > 5 {
+			b |= int(data[offset/8 + 1])
 		}
-		bm.CryptBlocks(ciphertext, plaintext)
-		n, err = outfile.Write(ciphertext)
-		if err != nil {
-			return total, err
-		}
-		total += n
-		fmt.Printf("Info: Wrote %d extra bytes\n", n)
+		tri := (b >> uint(13 - offset%8)) & 7
+		col.R = (col.R & 0xFFFE) | uint16((tri >> 2) & 1)
+		col.G = (col.G & 0xFFFE) | uint16((tri >> 1) & 1)
+		col.B = (col.B & 0xFFFE) | uint16(tri & 1)
+		offset += 3
+		return col
+	}
+	png := s.Image.(*image.RGBA64)
+	for i := 0; i < len(png.Pix); i++ {
+		png.Pix[i] = nextbits(png.Pix[i])
+	}
+}
+
+func (s *Steg) WritePNG(filename string) os.Error {
+	file, err := os.Create(filename)
+	if err != nil {
+		return err
 	}
 
-	fmt.Printf("Info: Written %d encrypted bytes\n", total)
-
-	return total, nil
+	err = png.Encode(file, s.Image)
+	if err != nil {
+		return err
+	}
+	return nil
 }
