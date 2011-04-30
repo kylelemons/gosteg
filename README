@@ -11,9 +11,9 @@ Options:
   --in       <file>   Input image (JPEG/PNG format)
   --out      <file>   Output image (PNG format)
 
-  --embed             Embed data into the image
-  --extract           Extract data from the image
-  --data     <file>   Data file to read/write embedded data
+  --embed    <file>   Embed data into the image from this file
+  --extract  <file>   Extract data from the image to this file
+
 
   --crypt             Encrypt/decrypt the data (based on mode)
   --keyin    <file>   File containing Key, IV, and Next
@@ -25,20 +25,20 @@ Examples:
 gosteg --in kitten.jpg --out kitten.png
   No steganography (just conversion to 64-bit color PNG)
 
-gosteg --in kitten.jpg --out kitten.png --embed --data hideme.dat
+gosteg --in kitten.jpg --out kitten.png --embed hideme.dat
   Embed hideme.dat into the PNG version of kitten.jpg and write it to kitten.png
 
-gosteg --in kitten.jpg --out kitten.png --embed --data hideme.dat --crypt
+gosteg --in kitten.jpg --out kitten.png --embed hideme.dat --crypt
   Same as above, except generate a new encryption key and write it to key.dat
 
-gosteg --in kitten.jpg --out kitten.png --embed --data hideme.dat --crypt --keyin key.dat
+gosteg --in kitten.jpg --out kitten.png --embed hideme.dat --crypt --keyin key.dat
   Same as above, except use the key from key.dat for encryption
 
-gosteg --in kitten.png --out kitten_steg.png --embed --data in.txt --crypt --keyin key.dat --rotate
+gosteg --in kitten.png --out kitten.png --embed hideme.dat --crypt --keyin key.dat --rotate
   Same as above, except rotate the keys before use
 
-gosteg --in kitten.png --extract --data hidden.dat
+gosteg --in kitten.png --extract hidden.dat
   Extract unencrypted data from kiten.png into hidden.dat
 
-gosteg --in kitten.png --extract --data hidden.dat --crypt --keyin key.dat
+gosteg --in kitten.png --extract hidden.dat --crypt --keyin key.dat
   Extract data encrypted with key in key.dat into file hidden.dat
