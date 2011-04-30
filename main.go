@@ -10,19 +10,24 @@ import (
 	"strings"
 )
 
+// TODO(kevlar): Open all files at the beginning for error reporting
+
 var (
-	in = flag.String("in", "in.png", "<file>\tInput image (JPEG/PNG format)")
-	out = flag.String("out", "out.png", "<file>\tOutput image (PNG format)")
+	in = flag.String("in", "", "<file>\tInput image (JPEG/PNG format)")
+	out = flag.String("out", "", "<file>\tOutput image (PNG format)")
 
 	embed = flag.Bool("embed", false, "Embed data into the image")
 	extract = flag.Bool("extract", false, "Extract data from the image")
-	data = flag.String("data", "embed.dat", "<file>\tData file to read/write embedded data")
+	data = flag.String("data", "", "<file>\tData file to read/write embedded data")
 
-	crypt = flag.Bool("crypt", false, "Encrypt/decrypt the data (depending on embed/extract)")
+	crypt = flag.Bool("crypt", false, "Encrypt/decrypt the data (based on mode)")
 	keyin = flag.String("keyin", "", "<file>\tFile containing Key, IV, and Next")
-	keyout = flag.String("keyout", "key.dat", "<file>\tFile to write new Key, IV, and Next")
+	keyout = flag.String("keyout", "key.dat", "key.dat\tFile to write new Key, IV, and Next")
+	rotate = flag.Bool("rotate", false, "Rotate keys before encryption")
 
+	raw = flag.Bool("raw", false, "Extract data without headers (hidden option)")
 	debug = flag.Bool("debug", false, "Enable debugging (hidden option)")
+	help = flag.Bool("help", false, "Show help message (hidden option)")
 )
 
 func main() {
@@ -33,11 +38,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "is specified in encryption mode, a new key will be generated.\n")
 		fmt.Fprintf(os.Stderr, "  An image can hold approximately three bits per pixel with this\n")
 		fmt.Fprintf(os.Stderr, "steganography scheme.  There is a certain amount of overhead\n")
-		fmt.Fprintf(os.Stderr, "for storing lengths, keys, etc, so it may not be a good idea\n")
-		fmt.Fprintf(os.Stderr, "to count on more than about two bits per pixel.\n")
+		fmt.Fprintf(os.Stderr, "for storing lengths, keys, etc.  Keep this in mind when choosing\n")
+		fmt.Fprintf(os.Stderr, "an image size for embedding.\n")
 		fmt.Fprintf(os.Stderr, "\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
-		for _,opt := range []string{"in","out","","embed","extract","data","","crypt","keyin","keyout"} {
+		for _,opt := range []string{"in","out","",
+									"embed","extract","data","",
+									"crypt","keyin","keyout","rotate"} {
 			f := flag.Lookup(opt)
 			if f != nil {
 				opts := ""
@@ -56,6 +63,12 @@ func main() {
 	}
 
 	flag.Parse()
+
+	if *help {
+		flag.Usage()
+		os.Exit(0)
+	}
+
 	log.SetFlags(0)
 	log.SetOutput(os.Stderr)
 
@@ -65,6 +78,9 @@ func main() {
 	}
 
 	// Read in the image
+	if len(*in) == 0 {
+		log.Fatalf("Error: Must specify input image with --in")
+	}
 	steg, err := Load(*in)
 	if err != nil {
 		log.Fatalf("Error: Unable to load %q: %s", *in, err)
@@ -72,13 +88,12 @@ func main() {
 
 	// Choose which action to take
 	if *embed {
+		if len(*data) == 0 {
+			log.Fatalf("Error: Must specify input data file with --data")
+		}
 		stat,err := os.Stat(*data)
 		if err != nil {
 			log.Fatalf("Error: Unable to load data from %q: %s", *data, err)
-		}
-		if 3*stat.Size > 2*int64(len(steg.Data)) {
-			log.Printf("Warning: Image (%d pixels) may be too small for %d bytes of data",
-				len(steg.Data)/3, stat.Size)
 		}
 		fin,err := os.Open(*data)
 		if err != nil {
@@ -86,15 +101,51 @@ func main() {
 		}
 
 		buf := bytes.NewBuffer(nil)
-		binary.Write(buf, binary.BigEndian, stat.Size)
-		_,err = buf.ReadFrom(fin)
-		if err != nil {
-			log.Fatalf("Error: Unable to read data from %q: %s", *data, err)
-		}
-		// TODO(kevlar): size? padding? etc?
 
 		if *crypt {
+			enc := NewEncryption(256)
+			// Get the keys (either generate or read from file)
+			if len(*keyin) == 0 {
+				Randomize(enc.Key)
+				Randomize(enc.IV)
+				Randomize(enc.Next)
+			} else {
+				kin,err := os.Open(*keyin)
+				if err != nil {
+					log.Fatalf("Error: Unable to open key file %q: %s", *keyin, err)
+				}
+				err = enc.ReadFrom(kin)
+				if err != nil {
+					log.Fatalf("Error: Unable to load key from %q: %s", *keyin, err)
+				}
+				kin.Close()
+			}
+			if *rotate {
+				enc.Rotate()
+			}
 
+			cbuf := bytes.NewBuffer(nil)
+			_,err = enc.Encrypt(fin, cbuf)
+			if err != nil {
+				log.Fatalf("Error: Unable to encrypt data from %q: %s", *data, err)
+			}
+			binary.Write(buf, binary.BigEndian, int64(cbuf.Len()))
+			log.Printf("Embedding %d bytes of encrypted data\n", cbuf.Len())
+			buf.ReadFrom(cbuf)
+
+			kout,err := os.Create(*keyout)
+			if err != nil {
+				log.Fatalf("Error: Unable to write key to %q: %s", *keyout, err)
+			}
+			enc.WriteTo(kout)
+			kout.Close()
+		} else {
+			binary.Write(buf, binary.BigEndian, stat.Size)
+			log.Printf("Embedding %d bytes of data\n", stat.Size)
+			_,err = buf.ReadFrom(fin)
+			if err != nil {
+				log.Fatalf("Error: Unable to read data from %q: %s", *data, err)
+			}
 		}
 
 		if buf.Len() > len(steg.Data) {
@@ -102,11 +153,48 @@ func main() {
 				buf.Len(), len(steg.Data)/3)
 		}
 		steg.Embed(buf.Bytes())
+
+		err = steg.WritePNG(*out)
+		if err != nil {
+			log.Fatalf("Error: Unable to write %q: %s", *out, err)
+		}
 	}
 
 	if *extract {
-		if *crypt {
+		if len(*data) == 0 {
+			log.Fatalf("Error: Must specify output data file with --data")
+		}
 
+		buf := bytes.NewBuffer(steg.Data)
+
+		if !*raw {
+			var size int64
+			binary.Read(buf, binary.BigEndian, &size)
+			buf.Truncate(int(size))
+		}
+
+		if *crypt {
+			enc := NewEncryption(256)
+			if len(*keyin) == 0 {
+				log.Fatalf("Error: Must specify decryption key file with --keyin")
+			}
+			kin,err := os.Open(*keyin)
+			if err != nil {
+				log.Fatalf("Error: Unable to open key file %q: %s", *keyin, err)
+			}
+			err = enc.ReadFrom(kin)
+			if err != nil {
+				log.Fatalf("Error: Unable to load key from %q: %s", *keyin, err)
+			}
+			kin.Close()
+
+			dbuf := bytes.NewBuffer(nil)
+			_,err = enc.Decrypt(buf, dbuf)
+			if err != nil {
+				log.Fatalf("Error: Unable to decrypt data from %q: %s", *data, err)
+			}
+			buf = dbuf
+			log.Printf("Decrypted %d bytes (%d)\n", dbuf.Len(), buf.Len())
 		}
 
 		fout,err := os.Create(*data)
@@ -114,17 +202,9 @@ func main() {
 			log.Fatalf("Error: Unable to open data file %q for writing: %s", *data, err)
 		}
 
-		buf := bytes.NewBuffer(steg.Data)
-		var size int64
-		binary.Read(buf, binary.BigEndian, &size)
-		_,err = fout.Write(buf.Bytes()[0:size])
+		_,err = fout.Write(buf.Bytes())
 		if err != nil {
 			log.Fatalf("Error: Unable to write data to %q: %s", *data, err)
 		}
-	}
-
-	err = steg.WritePNG(*out)
-	if err != nil {
-		log.Fatalf("Error: Unable to write %q: %s", *out, err)
 	}
 }
