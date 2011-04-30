@@ -1,9 +1,9 @@
 include $(GOROOT)/src/Make.inc
 
-TARG=steg
+TARG=gosteg
 GOFILES=\
 	main.go\
 	aes.go\
-	steg.go\
+	gosteg.go\
 
 include $(GOROOT)/src/Make.cmd
